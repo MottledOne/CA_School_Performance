@@ -1,0 +1,45 @@
+---
+title: "California School Performance"
+output: html_notebook
+---
+
+What school characterists are most important towards preparing our children for the college?
+
+```{r message = FALSE}
+library(tidyverse)
+library(readxl)
+```
+
+#Download and label datasets
+```{r}
+urls <- "http://www3.cde.ca.gov/researchfiles/satactap/sat17.xls"
+urls <- c(urls, "https://www.cde.ca.gov/SchoolDirectory/report?rid=dl1&tp=xlsx&ict=Y")
+urls <- c(urls, "http://dq.cde.ca.gov/dataquest/dlfile/dlfile.aspx?cLevel=School&cYear=2016-17&cCat=FEP&cPage=filesfepsch")
+urls <- c(urls, "http://dq.cde.ca.gov/dataquest/dlfile/dlfile.aspx?cLevel=School&cYear=2016-17&cCat=Enrollment&cPage=filesenr.asp")
+urls <- c(urls, "https://www.cde.ca.gov/ds/sd/sd/documents/frpm1617.xls")
+
+files <- c("sat.xls", "schools.xlsx", "languages.txt", "demographics.txt", "poverty.xls")
+
+for (i in 1:length(urls)){
+  if (!file.exists(files[i])){
+    download.file(urls[i], destfile = files[i], method = "libcurl")
+  }
+}
+```
+
+#Import data sets
+```{r}
+sat <- read_excel("sat.xls")
+schools <- read_excel("schools.xlsx", skip = 5)
+languages <- read_tsv("languages.txt")
+demographics <- read_tsv("demographics.txt")
+poverty <- read_excel("poverty.xls",sheet = 2, skip = 1)
+```
+
+#Inspect and clean datasets
+```{r}
+str(sat)
+sat %>% 
+  mutate_at()
+```
+

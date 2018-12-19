@@ -1,0 +1,5 @@
+SAT scores: https://www.cde.ca.gov/ds/sp/ai/
+School Info: https://www.cde.ca.gov/ds/si/ds/pubschls.asp
+Language: https://www.cde.ca.gov/ds/sd/sd/filesfepsch.asp
+Demographics Enrollment: https://www.cde.ca.gov/ds/sd/sd/filesenr.asp
+Poverty: https://www.cde.ca.gov/ds/sd/sd/filessp.asp
