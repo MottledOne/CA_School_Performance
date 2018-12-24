@@ -1,0 +1,169 @@
+---
+title: "California School Performance"
+output:
+  html_notebook
+---
+
+What school characterists are most important towards preparing our children for the college?
+
+```{r message = FALSE}
+library(tidyverse)
+library(readxl)
+```
+
+#Download and label datasets
+```{r}
+urls <- "http://www3.cde.ca.gov/researchfiles/satactap/sat17.xls"
+urls <- c(urls, "https://www.cde.ca.gov/SchoolDirectory/report?rid=dl1&tp=xlsx&ict=Y")
+urls <- c(urls, "http://dq.cde.ca.gov/dataquest/dlfile/dlfile.aspx?cLevel=School&cYear=2016-17&cCat=EL&cPage=fileselsch")
+urls <- c(urls, "http://dq.cde.ca.gov/dataquest/dlfile/dlfile.aspx?cLevel=School&cYear=2016-17&cCat=FEP&cPage=filesfepsch")
+urls <- c(urls, "http://dq.cde.ca.gov/dataquest/dlfile/dlfile.aspx?cLevel=School&cYear=2016-17&cCat=Enrollment&cPage=filesenr.asp")
+urls <- c(urls, "https://www.cde.ca.gov/ds/sd/sd/documents/frpm1617.xls")
+
+files <- c("sat.xls", "schools.xlsx","english_learners.txt", "fluent_english_proficient.txt", "demographics.txt", "poverty.xls")
+
+for (i in 1:length(urls)){
+  if (!file.exists(files[i])){
+    download.file(urls[i], destfile = files[i], method = "libcurl")
+  }
+}
+```
+
+#Import data sets
+```{r message = FALSE, results='markup'}
+sat <- read_excel("sat.xls")
+schools <- read_excel("schools.xlsx", skip = 5)
+EL <- read_tsv("english_learners.txt")
+FEP <- read_tsv("fluent_english_proficient.txt")
+demographics <- read_tsv("demographics.txt")
+poverty <- read_excel("poverty.xls",sheet = 2, skip = 1)
+```
+
+#Inspect and clean datasets
+We'll start with the `sat` dataset, as this contains our metrics of performance and is of primary interest in this study
+```{r results = 'markup'}
+# database <- list(sat, schools, languages, demographics, poverty)
+# names(database) <- map(str_split(files, "\\."),1)
+
+str(sat)
+```
+
+Quick inspection shows that there are redundant entries for districts, counties, and the entire state in addition to entries for individual schools. Since we are interested in features of individual schools, we will remove these other entries. Schools are identifed by their CDS (County-District-School) code, which we will ultimately join these datasets on this code. 
+```{r results = 'asis'}
+schools <- schools %>% 
+  rename(CDS = CDSCode)
+
+sat <- sat %>% 
+  filter(rtype == "S") %>% 
+  rename(CDS = cds)
+
+sat %>%   
+  inner_join(schools, by = "CDS") %>% 
+  select(CDS, contains("Benchmark")) %>% 
+  head(25)
+```
+
+Further inspection shows that there are two types of missing values for regarding school SAT performance: schools in which no students took the SAT (indicated by a value of 0 for `NumTstTakr` and "N/A" in columns related to test performance) and those schools which do not report their performance (indicated with an asterisk, "*"). Are there any common traits to these schools, which might explain these missing values or indicate how to handle these missing values?
+```{r results = 'show'}
+sat %>% 
+  inner_join(schools, by = "CDS") %>% 
+  mutate(missingValues = (NumCurrElaBenchmark  %in% c("N/A","*"))) %>%
+  select(missingValues,Charter) %>% 
+  table()
+```
+It appears that an unusually high percentage (`r 236/(317+236)*100`%) of those schools with missing values are charter schools. Put another way, charter schools are nearly twice as likely to report missing values as non-charter schools (`r 236/(236+223)*100`% versus `r 317/(1048+317)*100`%). This may make comparisons of relative performance between charter and non-charter schools a tenuous proposition. Since there is no obviously reasonable method for imputing these values, for the momoment, we will simply ommit them for the sake of simplicity. We also convert our "Benchmark" and other enrollment features to numerical values for later computation.
+
+```{r}
+sat <- sat %>% 
+  filter(!(NumCurrElaBenchmark %in% c("N/A", "*"))) %>% 
+  mutate_at(vars(enroll12, NumTstTakr, contains("Benchmark")),funs(as.numeric))
+```
+
+We now examine the `schools` dataset for missing values and data-type issues:
+```{r message = FALSE}
+schools %>% 
+  na.omit() %>% 
+  anti_join(schools) %>% 
+  nrow(.)
+
+head(schools)
+```
+Initial inspection shows there are (formally) no erroneous missing values in the dataset, but there are entries explicitly marked as "No Data", which we can replace with `NA`'s by re-importing the dataset by flagging these entries.
+
+```{r warning = FALSE}
+schools <- read_excel("schools.xlsx", skip = 5, na = "No Data")
+```
+
+```{r}
+sum(is.na(schools$CDSCode))
+```
+
+There are nearly 18,000 schools tabulated in this dataset, significantly more than the number of schools reporting SAT performance. Inspection of the dataset's data dictionary shows that the dataset includes information on ALL schools in California, including preschool, elementary, junior high, and adult education schools in addition to high schools. The dataset even includes schools which are no longer operational. All of these additional schools will be neglected when we eventually join it with the `sat` dataset, based on their CDS code, for which there are (thankfully) no missing values in either dataset.
+
+Other possible school features of interest include:
+
+* City: which cities have the highest performing schools? Do schools in larger cities perform better on average than in smaller cities? Can we estimate city size by using the number of schools in that city as a proxy? Alternatively, we could look for another dataset with actual population counts.
+
+* Open/CloseDate: Does students at younger (and presumably more modern) schools than at older schools? Ostensibly, younger schools should have relatively newer equipment and tools and may be more likely to employ experimental or progressive teaching methods. How old is the average school in California? What is the average lifespan of a school? 
+
+* Virtual: The advent of the internet allows for remote education. Do schools that utilize such technologizes just as effective as traditional schools?
+
+* Magnet: Magnet schools offer specialized curricula and draw their students from across their entire school district or even other districts. Do these schools perform better than non-magnet schools? When did magnet schools start to proliferate in California?
+
+* Latitude/Longitude: Where are the highest performing schools? Do schools in close proximity to each other perform similiarly on the SAT? We also note that these geospatial coordinates were improperly imported as character strings instead of numbers and must be converted.
+
+```{r}
+schools <- mutate_at(schools, vars(contains("tude")), funs(as.numeric))
+```
+There are quite a few missing values in the dataset, but it is also appears many of them correspond to schools we aren't interested in (junior high, elmentary, closed, etc.). We will put off cleaning these missing values until we've merged with the `sat` dataset and we can determine how much they may affect our analysis.
+
+We now inspect the datasets related to students for whom English is not their first language, of which there are two types: those students classified as active English learners (the `EL` dataset) and those who are fluent and proficient in English (the `FEP` dataset).
+```{r}
+str(EL)
+str(FEP)
+```
+The datasets report the number of students (by grade) of a given non-English language attending each school. The structure of the data does not indicate whether students speak multiple languages (polylingual) and for the moment we will assume that FEP students are only bilingual. Questions arising from this dataset include:
+
+* Do schools with higher proportion of non-English proficient students (English learners) perform worse on average on the SAT? What about schools with highly diverse populations, as indicated by a wide variety of spoken languages.
+
+* It has been argued (see [V. Cook](http://www.viviancook.uk/Writings/Papers/BilTUT.htm)) that bilingual proficiency may be associated with higher cognitive abilities. Can we corroborate this by showing that schools with a large proportion of multilingual students before better on the SAT?
+
+* What is the spatial distribution of non-English languages? Where do find high proportions of Spanish or Arabic speaking students?
+
+We perform a quick inspection for missing values:
+```{r}
+EL %>% 
+  na.omit() %>% 
+  anti_join(EL) %>% 
+  nrow()
+
+FEP %>% 
+  na.omit() %>% 
+  anti_join(FEP) %>% 
+  nrow()
+```
+
+We can also do a quick check to see if there are any unusually large values or schools with no non-English speakers.
+
+```{r}
+EL %>% 
+  group_by(CDS) %>% 
+  summarize(english_learners = sum(TOTAL_EL)) %>% 
+  inner_join(FEP %>% 
+               group_by(CDS) %>% 
+               summarize(fluent_english = sum(TOTAL)), by = "CDS") %>% 
+  gather(english_learners, fluent_english, key = "proficiency", value = "count") %>% 
+  ggplot(., aes(count)) +
+  geom_density(aes(color = proficiency))
+```
+
+It seems appears that multilingual students in small schools (or at least in schools with fewer multilingual students) are more likely to be fluent in English, rather than still learning English. Interestingly, this trend reverse for medium size schools (those with a few hundred multilingual students). Most surprisingly though (for the purposes of datacleaning) there a quite a few schools with **thousands** of multilingual students. 
+
+* Which schools are these? Are the schools really this large? Do they have an unusually high proportion of multilinguage students, or are these erroneous entries?
+
+The enrollment statistics of these schools is given in the `demographics` dataset, which we will briefly inspect now to compare to the language statistics.
+
+```{r}
+str(demographics)
+```
+
